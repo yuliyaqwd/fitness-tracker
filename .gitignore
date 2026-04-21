@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.log
+.DS_Store
+fitness_tracker.db-shm
+fitness_tracker.db-wal
+*.idea/
