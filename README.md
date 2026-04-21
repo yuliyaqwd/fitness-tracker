@@ -67,8 +67,8 @@ fitness_tracker_bot/
 
 ### 2. Клонирование репозитория
 ```bash
-git clone https://github.com/your-username/fitness_tracker_bot.git
-cd fitness_tracker_bot
+git clone https://github.com/yuliyaqwd/fitness_tracker.git
+cd fitness_tracker
 ```
 
 ### 3. Создание виртуального окружения
