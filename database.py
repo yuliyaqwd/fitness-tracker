@@ -1,5 +1,8 @@
 import sqlite3
 import datetime
+
+from django.utils.timezone import now
+
 from config import EXERCISES_CONFIG
 
 class Database:
@@ -20,6 +23,10 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")  # Включаем WAL для лучшей конкурентности
         self.cursor = self.conn.cursor()
         self._create_tables()
+        try:
+            self.cursor.execute("ALTER TABLE users ADD COLUMN last_active TEXT")
+        except sqlite3.OperationalError:
+            pass
 
     def _create_tables(self):
         """
@@ -74,7 +81,11 @@ class Database:
             first_name (str): Имя.
             last_name (str): Фамилия.
         """
-        self.cursor.execute('SELECT 1 FROM users WHERE user_id = ?', (user_id,))
+        ow = datetime.datetime.now().isoformat()
+        self.cursor.execute('''
+                    INSERT INTO users (user_id, username, first_name, last_name, registered_at, last_active, total_experience)
+                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                ''', (user_id, username, first_name, last_name, now, now))
         if self.cursor.fetchone():
             return
 
@@ -255,6 +266,10 @@ class Database:
         # Начисление общего XP
         self.cursor.execute('UPDATE users SET total_experience = total_experience + ? WHERE user_id = ?',
                             (xp_earned, user_id))
+
+        self.cursor.execute('UPDATE users SET last_active = ? WHERE user_id = ?',
+                            (datetime.datetime.now().isoformat(), user_id))
+
         self.conn.commit()
 
         # Проверка доступных покупок
@@ -520,6 +535,20 @@ class Database:
             'best_exercise': best_exercise,
             'active_days': active_days
         }
+
+    def get_inactive_users_for_support(self, min_days=3, max_days=4):
+        """
+        Возвращает список user_id пользователей, которые не тренировались
+        от min_days до max_days дней. Ограничение сверху гарантирует
+        однократную отправку сообщения в день.
+        """
+        self.cursor.execute('''
+            SELECT user_id FROM users 
+            WHERE last_active IS NOT NULL 
+            AND datetime(last_active) < datetime('now', ?)
+            AND datetime(last_active) >= datetime('now', ?)
+        ''', (f'-{min_days} days', f'-{max_days} days'))
+        return [row[0] for row in self.cursor.fetchall()]
 
 # Глобальный экземпляр БД
 db = Database()

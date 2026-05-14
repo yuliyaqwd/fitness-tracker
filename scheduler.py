@@ -1,6 +1,9 @@
+import random
 import time
 import datetime
 import logging
+
+from config import SUPPORT_MESSAGES
 from database import db
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,20 @@ def run_scheduler(vk_api):
                         logger.info(f"Напоминание отправлено user {user_id}")
                     except Exception as e:
                         logger.error(f"Ошибка отправки напоминания user {user_id}: {e}")
+
+            inactive_users = db.get_inactive_users_for_support(min_days=3, max_days=4)
+            for user_id in inactive_users:
+                try:
+                    msg = random.choice(SUPPORT_MESSAGES)
+                    vk_api.messages.send(
+                        user_id=user_id,
+                        message=msg,
+                        random_id=int(time.time()) % (2 ** 31)
+                    )
+                    logger.info(f"Поддерживающее сообщение отправлено неактивному user {user_id}")
+                    time.sleep(1)  
+                except Exception as e:
+                    logger.error(f"Ошибка отправки поддержки user {user_id}: {e}")
 
             if current_weekday == 6 and current_time_str == "20:00":
                 vk_api.users.get(user_ids=1)
