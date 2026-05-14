@@ -470,5 +470,56 @@ class Database:
         ''', (user_id,))
         return self.cursor.fetchall()
 
+    def get_weekly_summary(self, user_id):
+        """
+        Формирует сводку прогресса пользователя за последние 7 дней.
+
+        Args:
+            user_id (int): ID пользователя.
+
+        Returns:
+            dict: Словарь с данными:
+                - total_workouts: кол-во тренировок
+                - total_reps: общее кол-во повторений
+                - total_xp: заработано XP
+                - best_exercise: упражнение с макс. повторениями
+                - new_records: кол-во новых личных рекордов
+        """
+        week_ago = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat()
+
+        self.cursor.execute('''
+            SELECT COUNT(*), COALESCE(SUM(reps), 0), COALESCE(SUM(xp_earned), 0)
+            FROM workouts
+            WHERE user_id = ? AND created_at >= ?
+        ''', (user_id, week_ago))
+        row = self.cursor.fetchone()
+        total_workouts, total_reps, total_xp = row if row else (0, 0, 0)
+
+        self.cursor.execute('''
+            SELECT exercise_name, SUM(reps) as sum_reps
+            FROM workouts
+            WHERE user_id = ? AND created_at >= ?
+            GROUP BY exercise_name
+            ORDER BY sum_reps DESC
+            LIMIT 1
+        ''', (user_id, week_ago))
+        best_row = self.cursor.fetchone()
+        best_exercise = f"{best_row[0]} ({best_row[1]} раз)" if best_row else "нет данных"
+
+        self.cursor.execute('''
+            SELECT COUNT(DISTINCT DATE(created_at))
+            FROM workouts
+            WHERE user_id = ? AND created_at >= ?
+        ''', (user_id, week_ago))
+        active_days = self.cursor.fetchone()[0]
+
+        return {
+            'total_workouts': total_workouts,
+            'total_reps': total_reps,
+            'total_xp': total_xp,
+            'best_exercise': best_exercise,
+            'active_days': active_days
+        }
+
 # Глобальный экземпляр БД
 db = Database()
