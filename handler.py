@@ -545,6 +545,17 @@ class BotHandler:
         """
         text = text.lower().strip()
 
+        if not db.user_exists(user_id):
+            db.register_user(user_id, username, first_name, last_name)
+            if text not in ['/start', 'начать']:
+                self.send_message(
+                    user_id,
+                    f"👋 Привет, {first_name}! \n\n🏋️ Добро пожаловать в Fitness Tracker!",
+                    self.get_full_menu_keyboard(user_id)
+                )
+
+                return
+
         # Проверка активных состояний диалога
         if user_id in self.user_states:
             state = self.user_states[user_id]['state']

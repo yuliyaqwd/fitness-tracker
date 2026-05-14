@@ -78,25 +78,24 @@ class Database:
         Регистрирует нового пользователя в системе.
         Если пользователь уже существует, действие игнорируется.
         Автоматически добавляет базовые (бесплатные) стили упражнений.
-
-        Args:
-            user_id (int): ID пользователя ВКонтакте.
-            username (str): Имя пользователя (screen_name).
-            first_name (str): Имя.
-            last_name (str): Фамилия.
         """
-        ow = datetime.datetime.now().isoformat()
-        self.cursor.execute('''
-                    INSERT INTO users (user_id, username, first_name, last_name, registered_at, last_active, total_experience)
-                    VALUES (?, ?, ?, ?, ?, ?, 0)
-                ''', (user_id, username, first_name, last_name, now, now))
-        if self.cursor.fetchone():
+        # Исправлено: добавлены скобки () для вызова метода isoformat()
+        current_time = datetime.datetime.now().isoformat()
+
+        # Сначала проверяем, существует ли пользователь, чтобы избежать ошибки IntegrityError
+        if self.user_exists(user_id):
             return
 
-        self.cursor.execute('''
-            INSERT INTO users (user_id, username, first_name, last_name, registered_at, total_experience)
-            VALUES (?, ?, ?, ?, ?, 0)
-        ''', (user_id, username, first_name, last_name, datetime.datetime.now().isoformat()))
+        try:
+            self.cursor.execute('''
+                INSERT INTO users (user_id, username, first_name, last_name, registered_at, last_active, total_experience)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+            ''', (user_id, username, first_name, last_name, current_time, current_time))
+
+            self.conn.commit()
+        except sqlite3.IntegrityError:
+            # Если пользователь вдруг был добавлен другим потоком между проверкой и вставкой
+            return
 
         # Добавляем базовые типы упражнений для нового пользователя
         for exercise, config in EXERCISES_CONFIG.items():
@@ -104,7 +103,7 @@ class Database:
             self.cursor.execute('''
                 INSERT INTO purchased_types (user_id, exercise_name, type_name, purchased_at, total_reps, max_reps, best_single_set)
                 VALUES (?, ?, ?, ?, 0, 0, 0)
-            ''', (user_id, exercise, base_type, datetime.datetime.now().isoformat()))
+            ''', (user_id, exercise, base_type, current_time))
 
         self.conn.commit()
 
