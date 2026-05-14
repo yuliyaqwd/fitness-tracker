@@ -51,6 +51,8 @@ class BotHandler:
         kb.add_line()
         kb.add_button('Напоминания', color=VkKeyboardColor.PRIMARY);
         kb.add_line()
+        kb.add_button('Часовой пояс', color=VkKeyboardColor.SECONDARY);
+        kb.add_line()
         if db.get_remind_time(user_id):
             kb.add_button('Отключить напоминания', color=VkKeyboardColor.NEGATIVE);
             kb.add_line()
@@ -555,8 +557,9 @@ class BotHandler:
                 'waiting_stats_action': lambda: self.handle_stats_action(user_id, text),
                 'waiting_store_type': lambda: self.handle_store_type(user_id, text),
                 'waiting_info_type': lambda: self.handle_info_type(user_id, text),
-                'waiting_rating_type': lambda: self.handle_rating_selection(user_id, text),
-                'waiting_export_type': lambda: self.handle_export_type(user_id, text)
+                'waiting_export_type': lambda: self.handle_export_type(user_id, text),
+                'waiting_timezone': lambda: self.handle_set_timezone(user_id, text),
+                'waiting_rating_type': lambda: self.handle_rating_selection(user_id, text)
             }
             if state in state_map:
                 state_map[state]()
@@ -582,6 +585,8 @@ class BotHandler:
             '/export': lambda: self.handle_export_request(user_id),
             'экспорт': lambda: self.handle_export_request(user_id),
             'экспорт статистики': lambda: self.handle_export_request(user_id),
+            '/timezone': lambda: self.handle_timezone_request(user_id),
+            'часовой пояс': lambda: self.handle_timezone_request(user_id),
             'назад': lambda: self.show_full_menu(user_id)
         }
 
@@ -747,3 +752,27 @@ class BotHandler:
                     logger.info(f"Временный файл {filepath} удален")
                 except Exception as e:
                     logger.error(f"Не удалось удалить временный файл: {e}")
+
+    def handle_timezone_request(self, user_id):
+        """Запускает процесс установки часового пояса (NFR-09)"""
+        self.user_states[user_id] = {'state': 'waiting_timezone'}
+        self.send_message(user_id,
+                          "⏰ Введите смещение вашего часового пояса относительно UTC.\n\nПримеры: `3` (Москва), `5` (Екатеринбург), `-5` (Нью-Йорк), `0` (Лондон):",
+                          get_cancel_keyboard())
+
+    def handle_set_timezone(self, user_id, text):
+        """Сохраняет часовой пояс после валидации"""
+        if text == 'отмена':
+            self.cancel_action(user_id);
+            return
+
+        try:
+            offset = int(text)
+            if not (-12 <= offset <= 14):
+                raise ValueError
+            db.set_timezone(user_id, offset)
+            self.send_message(user_id, f"✅ Часовой пояс установлен: UTC{offset:+d}",
+                              self.get_full_menu_keyboard(user_id))
+            self.user_states.pop(user_id, None)
+        except ValueError:
+            self.send_message(user_id, "❌ Введите целое число от -12 до 14", get_cancel_keyboard())

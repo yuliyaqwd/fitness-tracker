@@ -27,6 +27,10 @@ class Database:
             self.cursor.execute("ALTER TABLE users ADD COLUMN last_active TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            self.cursor.execute("ALTER TABLE users ADD COLUMN utc_offset INTEGER DEFAULT 3")
+        except sqlite3.OperationalError:
+            pass
 
     def _create_tables(self):
         """
@@ -400,8 +404,16 @@ class Database:
         Returns:
             list[tuple]: Список кортежей (user_id, remind_time).
         """
-        self.cursor.execute('SELECT user_id, remind_time FROM users WHERE remind_time IS NOT NULL')
+        self.cursor.execute('''
+                    SELECT user_id, remind_time, COALESCE(utc_offset, 3) 
+                    FROM users WHERE remind_time IS NOT NULL
+                ''')
         return self.cursor.fetchall()
+
+    def set_timezone(self, user_id, offset):
+        """Устанавливает часовой пояс пользователя (смещение от UTC)"""
+        self.cursor.execute('UPDATE users SET utc_offset = ? WHERE user_id = ?', (offset, user_id))
+        self.conn.commit()
 
     def get_global_rating(self):
         """
