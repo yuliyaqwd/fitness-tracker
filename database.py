@@ -418,5 +418,57 @@ class Database:
         ''', (exercise_name,))
         return self.cursor.fetchall()
 
+    def get_user_workouts(self, user_id, exercise_name=None, limit=None):
+        """
+        Получает историю тренировок пользователя для экспорта.
+
+        Args:
+            user_id (int): ID пользователя.
+            exercise_name (str, optional): Фильтр по названию упражнения.
+            limit (int, optional): Ограничение количества записей.
+
+        Returns:
+            list[dict]: Список словарей с данными о тренировках.
+                Каждая запись содержит: exercise, type, reps, xp, date.
+        """
+        query = '''
+            SELECT w.exercise_name, w.type_name, w.reps, w.xp_earned, w.created_at
+            FROM workouts w
+            WHERE w.user_id = ?
+        '''
+        params = [user_id]
+
+        if exercise_name:
+            query += ' AND w.exercise_name = ?'
+            params.append(exercise_name)
+
+        query += ' ORDER BY w.created_at DESC'
+
+        if limit:
+            query += ' LIMIT ?'
+            params.append(limit)
+
+        self.cursor.execute(query, params)
+        columns = ['exercise', 'type', 'reps', 'xp', 'date']
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+
+    def get_user_workouts_for_export(self, user_id):
+        """
+        Получает полную историю тренировок пользователя для экспорта.
+
+        Args:
+            user_id (int): ID пользователя.
+
+        Returns:
+            list[tuple]: Список кортежей (date, exercise, type, reps, xp).
+        """
+        self.cursor.execute('''
+            SELECT created_at, exercise_name, type_name, reps, xp_earned 
+            FROM workouts 
+            WHERE user_id = ? 
+            ORDER BY created_at DESC
+        ''', (user_id,))
+        return self.cursor.fetchall()
+
 # Глобальный экземпляр БД
 db = Database()

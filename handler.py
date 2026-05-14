@@ -1,6 +1,10 @@
+import os
 import random
 import logging
 import re
+import csv
+import io
+import requests
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from database import db
 from keyboards import *
@@ -43,6 +47,8 @@ class BotHandler:
         kb.add_line()
         kb.add_button('Рейтинг', color=VkKeyboardColor.PRIMARY);
         kb.add_line()
+        kb.add_button('Экспорт', color=VkKeyboardColor.PRIMARY);
+        kb.add_line()
         kb.add_button('Напоминания', color=VkKeyboardColor.PRIMARY);
         kb.add_line()
         if db.get_remind_time(user_id):
@@ -60,7 +66,7 @@ class BotHandler:
         """
         self.send_message(user_id, "Главное меню: ", self.get_full_menu_keyboard(user_id))
 
-    def send_message(self, user_id, text, keyboard=None):
+    def send_message(self, user_id, text, keyboard=None, attachment=None):
         """
         Отправляет текстовое сообщение пользователю.
 
@@ -68,11 +74,14 @@ class BotHandler:
             user_id (int): ID пользователя.
             text (str): Текст сообщения.
             keyboard (VkKeyboard, optional): Клавиатура.
+            attachment (str, optional): Строка вложения (например, 'doc123_456').
         """
         try:
             params = {'user_id': user_id, 'message': text, 'random_id': random.randint(1, 2 ** 31)}
             if keyboard:
                 params['keyboard'] = keyboard.get_keyboard()
+            if attachment:
+                params['attachment'] = attachment
             self.vk.messages.send(**params)
         except Exception as e:
             logger.error(f"Ошибка отправки сообщения: {e}")
@@ -546,10 +555,11 @@ class BotHandler:
                 'waiting_stats_action': lambda: self.handle_stats_action(user_id, text),
                 'waiting_store_type': lambda: self.handle_store_type(user_id, text),
                 'waiting_info_type': lambda: self.handle_info_type(user_id, text),
-                'waiting_rating_type': lambda: self.handle_rating_selection(user_id, text)
+                'waiting_rating_type': lambda: self.handle_rating_selection(user_id, text),
+                'waiting_export_type': lambda: self.handle_export_type(user_id, text)
             }
             if state in state_map:
-                state_map[state]();
+                state_map[state]()
                 return
 
         # Обработка команд главного меню
@@ -569,6 +579,9 @@ class BotHandler:
             '/stop_remind': lambda: self.handle_stop_remind(user_id),
             'отключить напоминания': lambda: self.handle_stop_remind(user_id),
             'записать тренировку': lambda: self.handle_workout_request(user_id),
+            '/export': lambda: self.handle_export_request(user_id),
+            'экспорт': lambda: self.handle_export_request(user_id),
+            'экспорт статистики': lambda: self.handle_export_request(user_id),
             'назад': lambda: self.show_full_menu(user_id)
         }
 
@@ -577,3 +590,160 @@ class BotHandler:
             handler()
         else:
             self.send_message(user_id, "❌ Неизвестная команда. Нажмите 'Начать'", get_main_keyboard())
+
+    def handle_export_type(self, user_id, export_type):
+        """
+        Обрабатывает выбор формата экспорта и генерирует CSV-файл.
+
+        Для учебного проекта: CSV отправляется как текстовое сообщение,
+        которое пользователь может скопировать.
+
+        В продакшене: использовать docs.save + messages.send с attachment.
+
+        Args:
+            user_id (int): ID пользователя.
+            export_type (str): Выбранный тип экспорта.
+        """
+        if export_type == 'назад':
+            self.show_full_menu(user_id)
+            self.user_states.pop(user_id, None)
+            return
+
+        exercise_filter = None
+        if export_type == 'csv (по упражнению)':
+            pass
+
+        workouts = db.get_user_workouts(user_id, exercise_name=exercise_filter)
+
+        if not workouts:
+            self.send_message(
+                user_id,
+                "❌ Нет данных для экспорта. Сначала запишите тренировки!",
+                self.get_full_menu_keyboard(user_id)
+            )
+            self.user_states.pop(user_id, None)
+            return
+
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=';', lineterminator='\n')
+
+        writer.writerow(['Дата', 'Упражнение', 'Стиль', 'Повторения', 'Получено XP'])
+
+        for w in reversed(workouts):
+            writer.writerow([
+                w['date'],
+                w['exercise'],
+                w['type'],
+                w['reps'],
+                w['xp']
+            ])
+
+        csv_content = output.getvalue()
+        output.close()
+
+        lines = csv_content.strip().split('\n')
+        preview = '\n'.join(lines[:10])
+        total = len(lines) - 1
+
+        message = (
+            f"📊 Ваш экспорт готов!\n\n"
+            f"📄 Формат: CSV (разделитель ';')\n"
+            f"📈 Записей: {total}\n\n"
+            f"🔍 Превью:\n"
+            f"```\n{preview}\n```"
+            f"\n\n💡 Чтобы сохранить полный файл:\n"
+            f"1. Скопируйте это сообщение целиком\n"
+            f"2. Вставьте в текстовый редактор (Блокнот, Excel, Google Sheets)\n"
+            f"3. Сохраните как `fitness_export.csv`\n\n"
+            f"⚠️ Примечание: В полной версии бот отправит файл автоматически."
+        )
+
+        try:
+            self.send_message(user_id, message, self.get_full_menu_keyboard(user_id))
+            logger.info(f"Экспорт статистики запрошен пользователем {user_id} ({total} записей)")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке экспорта пользователю {user_id}: {e}")
+            self.send_message(
+                user_id,
+                "❌ Ошибка при генерации экспорта. Попробуйте позже.",
+                self.get_full_menu_keyboard(user_id)
+            )
+
+        self.user_states.pop(user_id, None)
+
+    def handle_export_request(self, user_id):
+        """
+        Генерирует CSV-файл со статистикой пользователя и отправляет его как документ.
+        """
+        filepath = None
+        try:
+            logger.info(f"Начало экспорта для user {user_id}")
+
+            workouts = db.get_user_workouts_for_export(user_id)
+
+            if not workouts:
+                self.send_message(user_id, "❌ У вас пока нет записанных тренировок.",
+                                  self.get_full_menu_keyboard(user_id))
+                return
+            filename = f"fitness_stats_{user_id}.csv"
+            filepath = os.path.join(os.getcwd(), filename)
+
+            logger.info(f"Создание файла: {filepath}")
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';')
+                writer.writerow(['Дата', 'Упражнение', 'Стиль', 'Повторения', 'XP'])
+                for w in workouts:
+                    date_str = str(w[0]).split('T')[0] if 'T' in str(w[0]) else str(w[0])
+                    writer.writerow([date_str, w[1], w[2], w[3], w[4]])
+
+            if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+                raise Exception("Файл не создан или пуст")
+
+            logger.info("Запрос URL для загрузки...")
+            upload_url = self.vk.docs.getMessagesUploadServer(type='doc', peer_id=user_id)['upload_url']
+
+            logger.info("Загрузка файла на сервер VK...")
+            with open(filepath, 'rb') as f:
+                response = requests.post(upload_url, files={'file': f})
+
+            logger.info(f"Ответ VK при загрузке: {response.status_code}")
+
+            if response.status_code != 200:
+                raise Exception(f"Ошибка загрузки файла: {response.text}")
+
+            file_data = response.json()
+            if 'file' not in file_data:
+                raise Exception(f"VK не вернул поле 'file': {file_data}")
+
+            logger.info("Сохранение документа...")
+            saved_doc = self.vk.docs.save(file=file_data['file'], title=filename)
+            logger.info(f"Ответ docs.save: {saved_doc}")
+
+            doc_info = saved_doc.get('doc', saved_doc) if isinstance(saved_doc, dict) else saved_doc
+
+            if not doc_info or 'id' not in doc_info or 'owner_id' not in doc_info:
+                raise Exception(f"Некорректная структура ответа: {saved_doc}")
+
+            doc_id = doc_info['id']
+            owner_id = doc_info['owner_id']
+
+            attachment = f"doc{owner_id}_{doc_id}"
+            logger.info(f"Отправка сообщения с attachment: {attachment}")
+
+            self.send_message(
+                user_id,
+                f"📊 Ваша статистика готова!\n\n📁 Файл: {filename}\n📈 Записей: {len(workouts)}",
+                keyboard=self.get_full_menu_keyboard(user_id),
+                attachment=attachment
+            )
+        except Exception as e:
+            logger.error(f"Критическая ошибка при экспорте для user {user_id}: {e}", exc_info=True)
+            self.send_message(user_id, f"❌ Произошла ошибка при создании файла: {str(e)}",
+                              self.get_full_menu_keyboard(user_id))
+        finally:
+            if filepath and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    logger.info(f"Временный файл {filepath} удален")
+                except Exception as e:
+                    logger.error(f"Не удалось удалить временный файл: {e}")

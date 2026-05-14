@@ -188,3 +188,22 @@ def get_remind_keyboard() -> VkKeyboard:
     kb.add_line()
     kb.add_button('Отмена', color=VkKeyboardColor.NEGATIVE)
     return kb
+
+
+def get_export_keyboard() -> VkKeyboard:
+    """
+    Генерирует клавиатуру выбора формата экспорта статистики.
+
+    Returns:
+        VkKeyboard: Клавиатура с опциями:
+            - 'CSV (все тренировки)' — полный экспорт
+            - 'CSV (по упражнению)' — фильтр по упражнению
+            - 'Назад' — возврат в меню
+    """
+    kb = VkKeyboard(one_time=True)
+    kb.add_button('CSV (все тренировки)', color=VkKeyboardColor.PRIMARY)
+    kb.add_line()
+    kb.add_button('CSV (по упражнению)', color=VkKeyboardColor.PRIMARY)
+    kb.add_line()
+    kb.add_button('Назад', color=VkKeyboardColor.SECONDARY)
+    return kb
